@@ -2,51 +2,61 @@ using Finbourne.Components.LRUCache.Contracts;
 
 namespace Finbourne.Components.LRUCache;
 
-internal class LRUCache<TKey, TValue> : ILRUCache<TKey, TValue> where TKey : notnull 
+internal class LRUCache<TKey, TValue> : ILRUCache<TKey, TValue> where TKey : notnull
 {
     private readonly int _capacity;
     private readonly Dictionary<TKey, LinkedListNode<LRUCacheItem<TKey, TValue>>> _cache;
     private readonly LinkedList<LRUCacheItem<TKey, TValue>> _doubleLinkedList;
- 
+
+    public event EventHandler<TKey> ItemRemoved; 
+    
     internal LRUCache(int capacity)
     {
         _capacity = capacity;
         _cache = new Dictionary<TKey, LinkedListNode<LRUCacheItem<TKey, TValue>>>(_capacity);
         _doubleLinkedList = new LinkedList<LRUCacheItem<TKey, TValue>>();
     }
-    
+
     public TValue Get(TKey key)
     {
         if (key == null)
         {
             throw new ArgumentNullException(nameof(key));
         }
-        
-        if (_cache.TryGetValue(key, out var node))
+
+        lock (_doubleLinkedList)
         {
-            TValue value = node.Value.Value!;
+            if (!_cache.TryGetValue(key, out var node))
+            {
+                return default!;
+            }
+            
+            var value = node.Value.Value!;
 
             if (value == null)
             {
                 throw new InvalidOperationException(nameof(value));
             }
 
-            lock (_doubleLinkedList)
-            {
-                _doubleLinkedList.Remove(node);
-                _doubleLinkedList.AddFirst(node);
-            }
-            
+            _doubleLinkedList.Remove(node);
+            _doubleLinkedList.AddFirst(node);
+
             return value;
-        }
-        else
-        {
-            return default!;
         }
     }
 
     public void Add(TKey key, TValue value)
     {
+        if (key == null)
+        {
+            throw new ArgumentNullException(nameof(key));
+        }
+
+        if (value == null)
+        {
+            throw new ArgumentNullException(nameof(value));
+        }
+        
         if (_cache.Count >= _capacity)
         {
             RemoveLRUItem();
@@ -63,7 +73,7 @@ internal class LRUCache<TKey, TValue> : ILRUCache<TKey, TValue> where TKey : not
         {
             _doubleLinkedList.AddFirst(node);
         }
-        
+
         _cache.Add(key, node);
     }
 
@@ -84,9 +94,10 @@ internal class LRUCache<TKey, TValue> : ILRUCache<TKey, TValue> where TKey : not
                 {
                     throw new NullReferenceException(nameof(lastNode.Value.Key));
                 }
-                
+
                 _cache.Remove(lastNode.Value.Key);
                 _doubleLinkedList.RemoveLast();
+                ItemRemoved?.Invoke(this, lastNode.Value.Key);
             }
         }
     }
